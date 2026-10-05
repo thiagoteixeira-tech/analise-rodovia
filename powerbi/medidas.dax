@@ -1,0 +1,117 @@
+// =====================================================================
+// DAX — Radares BR-153 (ANTT)
+// 1) Crie a tabela Calendario (Modelagem > Nova tabela).
+// 2) Crie as medidas (Modelagem > Nova medida) na tabela fato_volume.
+// =====================================================================
+
+// ---------------------------------------------------------------------
+// Tabela calculada: Calendario
+// Relacione Calendario[Data] (1) -> fato_volume[data] (*).
+// Classifique "Dia da semana" por "Nº dia semana" e "Mês" por "Nº mês".
+// ---------------------------------------------------------------------
+Calendario =
+ADDCOLUMNS (
+    CALENDAR ( MIN ( fato_volume[data] ), MAX ( fato_volume[data] ) ),
+    "Ano", YEAR ( [Date] ),
+    "Nº mês", MONTH ( [Date] ),
+    "Mês", FORMAT ( [Date], "MMM/yy" ),
+    "Ano-mês", FORMAT ( [Date], "YYYY-MM" ),
+    "Nº dia semana", WEEKDAY ( [Date], 2 ),
+    "Dia da semana",
+        SWITCH (
+            WEEKDAY ( [Date], 2 ),
+            1, "Segunda", 2, "Terça", 3, "Quarta", 4, "Quinta",
+            5, "Sexta", 6, "Sábado", 7, "Domingo"
+        ),
+    "Tipo de dia", IF ( WEEKDAY ( [Date], 2 ) >= 6, "Fim de semana", "Dia útil" )
+)
+
+// ---------------------------------------------------------------------
+// Medidas básicas
+// ---------------------------------------------------------------------
+Volume = SUM ( fato_volume[volume] )
+
+Dias com registro = DISTINCTCOUNT ( fato_volume[data] )
+
+Radar-dias =
+COUNTROWS ( SUMMARIZE ( fato_volume, fato_volume[equipamento], fato_volume[data] ) )
+
+// Média diária: volume ÷ datas com registro no contexto (evita a distorção
+// de quantidades diferentes de segundas, terças etc.)
+Média diária = DIVIDE ( [Volume], [Dias com registro] )
+
+// Comparável entre grupos com números diferentes de radares (ex.: sentidos)
+Média por radar-dia = DIVIDE ( [Volume], [Radar-dias] )
+
+Equipamentos = DISTINCTCOUNT ( fato_volume[equipamento] )
+
+// ---------------------------------------------------------------------
+// Composição (Tarefa 2 e 3)
+// ---------------------------------------------------------------------
+% do tipo no contexto =
+DIVIDE ( [Volume], CALCULATE ( [Volume], REMOVEFILTERS ( fato_volume[tipo_veiculo] ) ) )
+
+% da velocidade no contexto =
+DIVIDE (
+    [Volume],
+    CALCULATE ( [Volume], REMOVEFILTERS ( dim_velocidade ), REMOVEFILTERS ( fato_volume[velocidade] ) )
+)
+
+% do volume total =
+DIVIDE ( [Volume], CALCULATE ( [Volume], ALL ( fato_volume ) ) )
+
+// ---------------------------------------------------------------------
+// Velocidade acima de 100 km/h (Tarefa 5)
+// ---------------------------------------------------------------------
+Volume acima de 100 km/h =
+CALCULATE ( [Volume], dim_velocidade[acima_100] = "Sim" )
+
+% acima de 100 km/h = DIVIDE ( [Volume acima de 100 km/h], [Volume] )
+
+Acima de 100 por 100 mil = [% acima de 100 km/h] * 100000
+
+Ranking absoluto > 100 =
+RANKX ( ALL ( dim_equipamento[equipamento] ), [Volume acima de 100 km/h], , DESC, DENSE )
+
+Ranking proporção > 100 =
+RANKX ( ALL ( dim_equipamento[equipamento] ), [% acima de 100 km/h], , DESC, DENSE )
+
+// ---------------------------------------------------------------------
+// Variação temporal (Tarefa 4)
+// ---------------------------------------------------------------------
+Média diária - dias úteis =
+CALCULATE ( [Média diária], Calendario[Tipo de dia] = "Dia útil" )
+
+Média diária - fim de semana =
+CALCULATE ( [Média diária], Calendario[Tipo de dia] = "Fim de semana" )
+
+Variação fim de semana vs úteis =
+DIVIDE ( [Média diária - fim de semana], [Média diária - dias úteis] ) - 1
+
+// Use com Calendario[Dia da semana] no eixo (inclui Domingo -> Segunda)
+Variação vs dia anterior =
+VAR d = SELECTEDVALUE ( Calendario[Nº dia semana] )
+VAR anterior = IF ( d = 1, 7, d - 1 )
+VAR mediaAtual = [Média diária]
+VAR mediaAnterior =
+    CALCULATE (
+        [Média diária],
+        REMOVEFILTERS ( Calendario[Dia da semana], Calendario[Nº dia semana], Calendario[Tipo de dia] ),
+        Calendario[Nº dia semana] = anterior
+    )
+RETURN
+    IF ( NOT ISBLANK ( d ), DIVIDE ( mediaAtual, mediaAnterior ) - 1 )
+
+// Índice semanal do tipo: média do dia ÷ média dos 7 dias × 100
+Índice semanal =
+VAR mediaDia = [Média diária]
+VAR mediaSemana =
+    AVERAGEX (
+        CALCULATETABLE (
+            VALUES ( Calendario[Nº dia semana] ),
+            REMOVEFILTERS ( Calendario[Dia da semana], Calendario[Nº dia semana], Calendario[Tipo de dia] )
+        ),
+        CALCULATE ( [Média diária], REMOVEFILTERS ( Calendario[Dia da semana], Calendario[Tipo de dia] ) )
+    )
+RETURN
+    DIVIDE ( mediaDia, mediaSemana ) * 100

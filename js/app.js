@@ -31,9 +31,11 @@
         painel.innerHTML = `<p class="erro">Erro ao montar esta aba: ${R.esc(e.message)}</p>`;
       }
       renderizadas[n] = true;
+    } else if (R.mapa) {
+      R.mapa.invalidar(painel);
     }
-    if (location.hash !== '#aba-' + n) {
-      try { history.replaceState(null, '', '#aba-' + n); } catch (e) { /* file:// em alguns navegadores */ }
+    if (location.hash !== '#analise-' + n) {
+      try { history.replaceState(null, '', '#analise-' + n); } catch (e) { /* file:// em alguns navegadores */ }
     }
   }
 
@@ -50,7 +52,7 @@
   });
 
   window.addEventListener('hashchange', () => {
-    const m = location.hash.match(/^#aba-(\d)$/);
+    const m = location.hash.match(/^#(?:analise|aba)-(\d)$/);
     if (m) abrir(m[1]);
   });
 
@@ -62,8 +64,10 @@
     fonteEl.textContent = `Fonte: ${carga.origem.replace(/^data\//, '')} · ${R.int(D.registros.length)} linhas`;
     estadoEl.hidden = true;
     botoes.forEach((b) => { b.disabled = false; });
-    const m = location.hash.match(/^#aba-(\d)$/);
+    const m = location.hash.match(/^#(?:analise|aba)-(\d)$/);
     abrir(m ? m[1] : '1');
+    /* links antigos (#aba-N) fazem o navegador rolar até o painel de mesmo id */
+    if (m) window.scrollTo(0, 0);
   }
 
   function mostrarSeletor(mensagem) {

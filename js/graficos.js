@@ -16,9 +16,11 @@
     const max = opcoes.max || Math.max.apply(null, itens.map((x) => x.valor)) || 1;
     return '<div class="barras-h">' + itens.map((x) => {
       const w = Math.max(0, (x.valor / max) * 100);
-      return `<div class="rot">${esc(x.rotulo)}</div>` +
-        `<div class="trilho" data-dica="${esc(x.dica || '')}"><div class="barra" style="width:${w}%;background:${x.cor || 'var(--s1)'}"></div></div>` +
-        `<div class="val">${esc(x.texto)}</div>`;
+      const cl = x.apagado ? ' apagado' : '';
+      const at = x.attrs || '';
+      return `<div class="rot${cl}" ${at}>${esc(x.rotulo)}</div>` +
+        `<div class="trilho${cl}" ${at} data-dica="${esc(x.dica || '')}"><div class="barra" style="width:${w}%;background:${x.cor || 'var(--s1)'}"></div></div>` +
+        `<div class="val${cl}">${esc(x.texto)}</div>`;
     }).join('') + '</div>';
   };
 
@@ -42,7 +44,7 @@
         return `<div class="col vazio" data-dica="${esc(x.dica || '')}"><div class="barra"></div></div>`;
       }
       const h = Math.max(0.5, (x.valor / max) * 100);
-      return `<div class="col" data-dica="${esc(x.dica || '')}">` +
+      return `<div class="col${x.apagado ? ' apagado' : ''}" ${x.attrs || ''} data-dica="${esc(x.dica || '')}">` +
         (opcoes.semTopo ? '' : `<span class="topo-val">${esc(x.topo || '')}</span>`) +
         `<div class="barra" style="height:${h}%;background:${x.cor || 'var(--s1)'}"></div></div>`;
     }).join('');

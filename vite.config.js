@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 // index.html também funcione aberto diretamente do disco (file://).
 // O Vite não empacota scripts clássicos, então copiamos as pastas estáticas
 // para o dist ao final do build.
-const PASTAS_ESTATICAS = ['js', 'css', 'data'];
+const PASTAS_ESTATICAS = ['js', 'css', 'data', 'vendor', 'powerbi'];
 
 export default defineConfig({
   base: './',

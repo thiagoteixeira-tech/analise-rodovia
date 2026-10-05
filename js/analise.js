@@ -268,6 +268,81 @@
     };
   };
 
+  /* ---------------- Aba 6 (painel com filtros) ---------------- */
+  /*
+   * filtro = { ano, eqs:Set, tipos:Set, sentidos:Set, dias:Set }
+   * `ignorar` permite calcular um visual sem o filtro da própria dimensão
+   * (como o realce do Power BI: barras não selecionadas ficam esmaecidas).
+   */
+  R.passaFiltro = function (r, f, ignorar) {
+    if (f.ano && ignorar !== 'ano' && r.d.slice(0, 4) !== f.ano) return false;
+    if (f.eqs.size && ignorar !== 'eqs' && !f.eqs.has(r.e)) return false;
+    if (f.tipos.size && ignorar !== 'tipos' && !f.tipos.has(r.t)) return false;
+    if (f.sentidos.size && ignorar !== 'sentidos' && !f.sentidos.has(r.s)) return false;
+    if (f.dias.size && ignorar !== 'dias' && !f.dias.has(r.w)) return false;
+    return true;
+  };
+
+  R.painel = function (D, f) {
+    const nT = D.tipos.length, nV = D.vels.length, nE = D.equipamentos.length;
+    const base = { total: 0, datas: new Set(), eqDias: new Set(), porTipo: zeros(nT), porVel: zeros(nV), acima: 0, meses: new Map(), matriz: D.equipamentos.map(() => zeros(nT)), porEqT: zeros(nE) };
+    const porTipo = zeros(nT);
+    const porEq = D.equipamentos.map(() => ({ total: 0, datas: new Set(), acima: 0 }));
+    const porDia = new Map(R.ORDEM_SEMANA.map((w) => [w, { total: 0, datas: new Set() }]));
+    const porSentido = new Map();
+    const anos = new Set();
+
+    for (const r of D.registros) {
+      anos.add(r.d.slice(0, 4));
+      if (R.passaFiltro(r, f, null)) {
+        base.total += r.q;
+        base.datas.add(r.d);
+        base.eqDias.add(r.e + '|' + r.d);
+        base.porTipo[r.t] += r.q;
+        base.porVel[r.v] += r.q;
+        base.matriz[r.e][r.t] += r.q;
+        base.porEqT[r.e] += r.q;
+        if (D.vels[r.v].acima100) base.acima += r.q;
+        const mes = r.d.slice(0, 7);
+        base.meses.set(mes, (base.meses.get(mes) || 0) + r.q);
+      }
+      /* visuais que realçam (não filtram) a própria dimensão */
+      if (R.passaFiltro(r, f, 'tipos')) porTipo[r.t] += r.q;
+      if (R.passaFiltro(r, f, 'eqs')) {
+        const x = porEq[r.e];
+        x.total += r.q; x.datas.add(r.d);
+        if (D.vels[r.v].acima100) x.acima += r.q;
+      }
+      if (R.passaFiltro(r, f, 'dias')) {
+        const x = porDia.get(r.w);
+        x.total += r.q; x.datas.add(r.d);
+      }
+      if (R.passaFiltro(r, f, 'sentidos')) porSentido.set(r.s, (porSentido.get(r.s) || 0) + r.q);
+    }
+
+    return {
+      total: base.total,
+      dias: base.datas.size,
+      radarDias: base.eqDias.size,
+      mediaDiaria: base.datas.size ? base.total / base.datas.size : 0,
+      mediaRadarDia: base.eqDias.size ? base.total / base.eqDias.size : 0,
+      porTipo: base.porTipo,
+      porVel: base.porVel,
+      acima: base.acima,
+      matriz: base.matriz,
+      porEqFiltrado: base.porEqT,
+      meses: Array.from(base.meses, ([mes, volume]) => ({ mes, volume })).sort((a, b) => (a.mes < b.mes ? -1 : 1)),
+      realceTipo: porTipo,
+      realceEq: porEq.map((x) => ({ total: x.total, dias: x.datas.size, media: x.datas.size ? x.total / x.datas.size : 0, acima: x.acima })),
+      realceDia: R.ORDEM_SEMANA.map((w) => {
+        const x = porDia.get(w);
+        return { w, total: x.total, n: x.datas.size, media: x.datas.size ? x.total / x.datas.size : 0 };
+      }),
+      realceSentido: Array.from(porSentido, ([s, volume]) => ({ s, volume })).sort((a, b) => (a.s < b.s ? -1 : 1)),
+      anos: Array.from(anos).sort(),
+    };
+  };
+
   /* ---------------- Aba 5 ---------------- */
   R.operacional = function (D) {
     const regs = D.registros;

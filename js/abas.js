@@ -89,10 +89,29 @@
     });
   }
 
+  /* Alterna um grupo segmentado sem re-renderizar a aba (usado nos controles dos mapas). */
+  function ligarLocal(el, nome, aoMudar) {
+    const botoes = el.querySelectorAll(`[data-controle="${nome}"] button`);
+    botoes.forEach((b) => b.addEventListener('click', () => {
+      botoes.forEach((x) => x.setAttribute('aria-pressed', x === b));
+      aoMudar(b.getAttribute('data-valor'));
+    }));
+  }
+
+  const NOTA_MAPA = '<p class="nota">Rodovias: traçado do OpenStreetMap embutido no sistema (aparece mesmo offline). O fundo cartográfico (Esri) precisa de internet; troque-o no botão de camadas, no canto superior direito. ' +
+    'Símbolos sobrepostos são afastados automaticamente e ligados ao ponto real do radar por linha tracejada. Use os botões + e − para aproximar.</p>';
+
+  const legendaRodovias = '<div class="legenda"><span><i class="legenda-linha"></i>BR-153</span><span><i class="legenda-linha outra"></i>Outras rodovias</span></div>';
+
+  function cartaoMapa(id, titulo, subtitulo, topo, classe) {
+    return cartao(titulo, (topo || '') + `<div class="mapa ${classe || ''}" id="${id}" role="img" aria-label="${esc(titulo)}"></div>` + NOTA_MAPA, subtitulo);
+  }
+
   /* ======================================================================
    * ABA 1 — Caracterização do conjunto de dados
    * ==================================================================== */
   A[1] = function (D, el) {
+    R.mapa.limpar(el);
     const c = R.caracterizar(D);
     const total = c.total;
 
@@ -185,6 +204,9 @@
       cabecalho('Caracterização do conjunto de dados',
         'Visão geral do arquivo de volume de tráfego nos radares de controle de velocidade (Sistema de Informação de Rodovias – ANTT). Os dados são agregados por equipamento, data, sentido, faixa, categoria de velocidade e tipo de veículo.') +
       kpis +
+      cartaoMapa('mapa-1', 'Mapa: rodovias e localização dos radares',
+        `${c.equipamentos.length} radares na ${esc(c.rodovias.join(', '))} entre o ${kmTxt(Math.min.apply(null, c.equipamentos.map((e) => e.km)))} e o ${kmTxt(Math.max.apply(null, c.equipamentos.map((e) => e.km)))}. Clique em um radar para ver os detalhes.`,
+        legendaRodovias + G.legenda([{ rotulo: 'Sentido crescente', cor: 'var(--s1)' }, { rotulo: 'Sentido decrescente', cor: 'var(--s2)' }]), 'mapa-grande') +
       '<div class="grade-2">' + cartao('Localização e abrangência', local) + cartao('Tipos de veículos', barrasTipo, `${D.tipos.length} tipos`) + '</div>' +
       cartao('Equipamentos', tabEq, `${c.equipamentos.length} radares, todos na pista ${esc(c.pistas.join('/').toLowerCase())}`) +
       '<div class="grade-2">' + cartao('Categorias de velocidade', tabVel, `${D.vels.length} categorias`) +
@@ -192,6 +214,26 @@
       cartao('Cobertura temporal: volume mensal',
         G.legenda([{ rotulo: 'Mês com registro em todos os dias', cor: 'var(--s1)' }, { rotulo: 'Mês com dias sem registro', cor: 'var(--s2)' }, { rotulo: 'Mês sem registros', cor: 'var(--grade)' }]) +
         colMeses + (avisos.length ? `<div class="aviso" style="margin-top:16px">${avisos.join('')}</div>` : ''));
+
+    /* Mapa de localização */
+    const m1 = R.mapa.criar(el.querySelector('#mapa-1'), D);
+    m1.simbolos(c.equipamentos.map((e) => {
+      const dist = R.mapa.distanciaRodovia(e.lat, e.lon);
+      const cresc = e.sentidos.length === 1 && /^cresc/i.test(e.sentidos[0]);
+      return {
+        eq: e,
+        r: 9,
+        html: R.mapa.circulo(9, cresc ? 'var(--s1)' : 'var(--s2)'),
+        rotulo: `${e.id} · ${kmTxt(e.km)}`,
+        dica: `${e.id} · ${e.municipio}\n${kmTxt(e.km)} · ${e.sentidos.join('/')} · faixa ${e.faixas.join('/')}\n${R.int(e.total)} veículos (${R.dataBR(e.ini)} – ${R.dataBR(e.fim)})`,
+        popup: `<strong>${esc(e.id)}</strong> · ${esc(e.rodovia)} ${esc(kmTxt(e.km))}<br>${esc(e.municipio)} – ${esc(e.uf)}<br>` +
+          `Sentido: ${esc(e.sentidos.join(', '))} · Faixa: ${esc(e.faixas.join(', '))}<br>` +
+          `Coordenadas: ${R.dec(e.lat, 5)}, ${R.dec(e.lon, 5)}<br>` +
+          `Período: ${R.dataBR(e.ini)} – ${R.dataBR(e.fim)} (${R.int(e.dias)} dias)<br>` +
+          `Volume: <strong>${R.int(e.total)}</strong> veículos (${R.pct(e.total / total)})` +
+          (isFinite(dist) ? `<br><span style="color:var(--texto-mudo)">Distância ao traçado OSM da BR-153: ${dist < 1000 ? R.int(dist) + ' m' : R.dec(dist / 1000, 1) + ' km'}</span>` : ''),
+      };
+    }));
   };
 
   /* ======================================================================
@@ -338,6 +380,7 @@
    * ABA 3 — Distribuição por ponto monitorado
    * ==================================================================== */
   A[3] = function (D, el, estado) {
+    R.mapa.limpar(el);
     const comum = R.periodoComum(D);
     estado = estado || { periodo: 'completo' };
     const periodo = estado.periodo === 'comum' && comum ? comum : null;
@@ -455,17 +498,50 @@
       controles +
       cartao('Volume por equipamento', tabVol + '<div style="margin-top:16px">' + barrasMedia + '</div>',
         'A média diária (volume ÷ dias com registro) neutraliza a diferença de cobertura temporal entre equipamentos.') +
+      cartaoMapa('mapa-3', 'Mapa: volume e composição por ponto monitorado',
+        'Tamanho da rosca proporcional à média diária de veículos (área). As fatias mostram a composição do ponto.',
+        `<div class="controles">${segmentado('mapa3', [{ valor: 'tipo', rotulo: 'Tipo de veículo' }, { valor: 'vel', rotulo: 'Categoria de velocidade' }], 'tipo')}</div>` +
+        '<div id="mapa-3-legenda"></div>') +
       '<div class="grade-2">' + cartao('Participação por tipo de veículo', tabTipo) + cartao('Composição por tipo (100%)', grafTipo) + '</div>' +
       '<div class="grade-2">' + cartao('Distribuição das categorias de velocidade', tabVel) + cartao('Velocidades (100%)', grafVel) + '</div>' +
       cartao('Interpretação', interp);
 
     ligarSegmentado(el, 'periodo', (v) => A[3](D, el, { periodo: v }));
+
+    /* Mapa de roscas */
+    const m3 = R.mapa.criar(el.querySelector('#mapa-3'), D);
+    const maxMedia = Math.max.apply(null, L.map((l) => l.mediaDiaria));
+    const R_MAX = 36;
+    const desenhar3 = (modo) => {
+      const porVel = modo === 'vel';
+      const cores = porVel ? D.vels.map((v) => v.cor) : D.tipos.map((t) => t.cor);
+      const nomes = porVel ? D.vels.map((v) => v.rotulo) : D.tipos.map((t) => t.nome);
+      m3.simbolos(L.map((l) => {
+        const r = Math.round(R.mapa.raio(l.mediaDiaria, maxMedia, R_MAX, 13));
+        const fr = porVel ? l.pVel : l.pTipo;
+        const linhas = nomes.map((n, i) => ({ n, f: fr[i] })).filter((x) => x.f >= 0.001)
+          .map((x) => `${x.n}: ${R.pct(x.f)}`).join('\n');
+        return {
+          eq: l.eq,
+          r,
+          html: R.mapa.rosca(fr, cores, r),
+          rotulo: `${l.eq.id} · ${R.int(l.mediaDiaria)}/dia`,
+          dica: `${eqTxt(l.eq)} · ${l.eq.municipio}\nMédia diária: ${R.int(l.mediaDiaria)} veículos\n${linhas}`,
+        };
+      }));
+      el.querySelector('#mapa-3-legenda').innerHTML =
+        (porVel ? legendaVels(D) : legendaTipos(D)) +
+        R.mapa.legendaTamanho(R.mapa.valoresLegenda(maxMedia), maxMedia, R_MAX, (v) => R.int(v) + ' veíc./dia');
+    };
+    desenhar3('tipo');
+    ligarLocal(el, 'mapa3', desenhar3);
   };
 
   /* ======================================================================
    * ABA 4 — Variação temporal (dia da semana)
    * ==================================================================== */
   A[4] = function (D, el, estado) {
+    R.mapa.limpar(el);
     estado = estado || { equipamento: '', excluir: false };
     const s = R.semana(D, {
       equipamento: estado.equipamento === '' ? null : +estado.equipamento,
@@ -603,18 +679,49 @@
       cartao('Composição por dia (100%)', grafUF) + '</div>' +
       '<div class="grade-2">' +
       cartao(`Decomposição do aumento ${trPico.de.curto} → ${trPico.para.curto}`, tabContrib, 'Quanto cada tipo contribui para o aumento até o dia de maior volume.') +
-      cartao('Índice semanal por tipo de veículo', tabIdx, 'Mostra se cada tipo segue o mesmo ritmo semanal.') + '</div>';
+      cartao('Índice semanal por tipo de veículo', tabIdx, 'Mostra se cada tipo segue o mesmo ritmo semanal.') + '</div>' +
+      cartaoMapa('mapa-4', 'Mapa: variação do fim de semana em relação aos dias úteis',
+        'Para cada radar: média diária no fim de semana ÷ média diária nos dias úteis − 1. Tamanho proporcional à magnitude da variação; cor indica o sinal.',
+        `<div class="controles">${segmentado('mapa4', [{ valor: '-1', rotulo: 'Total' }].concat(D.tipos.map((t) => ({ valor: String(t.i), rotulo: t.nome }))), '-1')}</div>` +
+        G.legenda([{ rotulo: 'Queda no fim de semana', cor: 'var(--s1)' }, { rotulo: 'Aumento no fim de semana', cor: 'var(--s8)' }]));
 
     el.querySelector('[data-controle="eq"]').addEventListener('change', (ev) =>
       A[4](D, el, { equipamento: ev.target.value, excluir: estado.excluir }));
     el.querySelector('[data-controle="excluir"]').addEventListener('change', (ev) =>
       A[4](D, el, { equipamento: estado.equipamento, excluir: ev.target.checked }));
+
+    /* Mapa: variação fim de semana × dias úteis por equipamento */
+    const porEq = D.equipamentos.map((e) => ({ e, s: R.semana(D, { equipamento: e.i, excluirAtipicos: estado.excluir }) }));
+    const m4 = R.mapa.criar(el.querySelector('#mapa-4'), D);
+    const desenhar4 = (valor) => {
+      const k = +valor;
+      const nome = k < 0 ? 'Total' : D.tipos[k].nome;
+      const itens = porEq.map((x) => {
+        const u = k < 0 ? x.s.uteis.media : x.s.uteis.mediaTipo[k];
+        const f = k < 0 ? x.s.fds.media : x.s.fds.mediaTipo[k];
+        return { x, u, f, v: u > 0 ? f / u - 1 : NaN };
+      });
+      const maxAbs = Math.max.apply(null, itens.filter((i) => isFinite(i.v)).map((i) => Math.abs(i.v))) || 1;
+      m4.simbolos(itens.map((i) => {
+        const r = isFinite(i.v) ? Math.round(R.mapa.raio(Math.abs(i.v), maxAbs, 30, 8)) : 6;
+        return {
+          eq: i.x.e,
+          r,
+          html: R.mapa.circulo(r, !isFinite(i.v) ? 'var(--grade)' : i.v < 0 ? 'var(--s1)' : 'var(--s8)'),
+          rotulo: `${i.x.e.id} ${isFinite(i.v) ? R.variacao(i.v) : 's/ dados'}`,
+          dica: `${eqTxt(i.x.e)} · ${nome}\nDias úteis: ${R.int(i.u)} /dia\nFim de semana: ${R.int(i.f)} /dia\nVariação: ${R.variacao(i.v)}`,
+        };
+      }));
+    };
+    desenhar4('-1');
+    ligarLocal(el, 'mapa4', desenhar4);
   };
 
   /* ======================================================================
    * ABA 5 — Análise espacial e operacional
    * ==================================================================== */
   A[5] = function (D, el) {
+    R.mapa.limpar(el);
     const o = R.operacional(D);
     const tot = o.total;
 
@@ -742,6 +849,259 @@
       '<h2 style="margin:28px 0 12px">Veículos acima de 100 km/h por equipamento</h2>' +
       cartao('Ranking: quantidade absoluta × proporção', tabRank) +
       '<div class="grade-2">' + cartao('Quantidade absoluta (> 100 km/h)', barrasAbs) + cartao('Proporção do próprio volume (> 100 km/h)', barrasProp) + '</div>' +
+      cartaoMapa('mapa-5', 'Mapa: veículos acima de 100 km/h por radar',
+        'Compare as duas medidas no espaço: o tamanho do círculo muda conforme a métrica escolhida.',
+        `<div class="controles">${segmentado('mapa5', [{ valor: 'abs', rotulo: 'Quantidade absoluta' }, { valor: 'prop', rotulo: 'Proporção do próprio volume' }], 'abs')}</div>` +
+        '<div id="mapa-5-legenda"></div>') +
       cartao('Respostas e interpretação', explic);
+
+    const m5 = R.mapa.criar(el.querySelector('#mapa-5'), D);
+    const desenhar5 = (modo) => {
+      const prop = modo === 'prop';
+      const val = (x) => (prop ? x.prop : x.acima);
+      const max = Math.max.apply(null, o.porAbs.map(val)) || 1;
+      const fmt = (v) => (prop ? R.pctFino(v) : R.int(v) + ' veíc.');
+      m5.simbolos(o.porAbs.map((x) => {
+        const r = Math.round(R.mapa.raio(val(x), max, 34, 6));
+        return {
+          eq: x.eq,
+          r,
+          html: R.mapa.circulo(r, prop ? 'var(--s2)' : 'var(--s1)'),
+          rotulo: `${x.eq.id} · ${fmt(val(x))}`,
+          dica: `${eqTxt(x.eq)} · ${x.eq.municipio}\nAcima de 100 km/h: ${R.int(x.acima)} veículos (${x.rankAbs}º)\nProporção: ${R.pctFino(x.prop)} (${x.rankProp}º)\nVolume total: ${R.int(x.total)}`,
+        };
+      }));
+      el.querySelector('#mapa-5-legenda').innerHTML = R.mapa.legendaTamanho(R.mapa.valoresLegenda(max), max, 34, fmt);
+    };
+    desenhar5('abs');
+    ligarLocal(el, 'mapa5', desenhar5);
+  };
+
+  /* ======================================================================
+   * ABA 6 — Painel interativo (estilo Power BI) + exportação e incorporação
+   * ==================================================================== */
+
+  /* Rótulo de velocidade no formato dos CSVs de powerbi/ ("<= 20 km/h", "21-50 km/h", "> 160 km/h"). */
+  const velCSV = (v) => (v.min === 0 ? `<= ${v.max} km/h` : v.max === Infinity ? `> ${v.min - 1} km/h` : `${v.min}-${v.max} km/h`);
+
+  function baixarCSV(nome, linhas) {
+    const texto = '﻿' + linhas.map((l) => l.map((c) => {
+      const s = String(c);
+      return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(';')).join('\r\n') + '\r\n';
+    const url = URL.createObjectURL(new Blob([texto], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nome;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  A[6] = function (D, el) {
+    R.mapa.limpar(el);
+    const f = { ano: '', eqs: new Set(), tipos: new Set(), sentidos: new Set(), dias: new Set() };
+    const sentidos = Array.from(new Set(D.registros.map((r) => r.s))).sort();
+    const cfg = window.RADAR_CONFIG || {};
+
+    const embed = cfg.powerBiUrl
+      ? `<div class="pbi-embed"><iframe title="Relatório Power BI" src="${esc(cfg.powerBiUrl)}" allowfullscreen loading="lazy"></iframe></div>`
+      : `<div class="aviso"><p><strong>Nenhum relatório configurado.</strong> Publique o relatório no Power BI e cole o link de incorporação em <code>js/config.js</code> (campo <code>powerBiUrl</code>). O passo a passo está em <code>powerbi/README.md</code>.</p></div>`;
+
+    el.innerHTML =
+      cabecalho('Painel interativo',
+        'Painel no estilo Power BI: use as segmentações ou clique nas barras, colunas e círculos do mapa para filtrar todos os visuais. Clique de novo para remover o filtro. Em cada visual, os itens fora da seleção ficam esmaecidos.') +
+      '<div class="cartao painel-filtros" id="p6-filtros"></div>' +
+      '<div class="kpis" id="p6-kpis"></div>' +
+      '<div class="grade-2">' +
+      cartao('Volume mensal', '<div id="p6-mes"></div>') +
+      cartao('Média diária por dia da semana', '<div id="p6-dia"></div>', 'Clique em um dia para filtrar.') + '</div>' +
+      '<div class="grade-3">' +
+      cartao('Volume por tipo de veículo', '<div id="p6-tipo"></div>', 'Clique para filtrar.') +
+      cartao('Média diária por equipamento', '<div id="p6-eq"></div>', 'Clique para filtrar.') +
+      cartao('Volume por sentido', '<div id="p6-sentido"></div>', 'Clique para filtrar.') + '</div>' +
+      '<div class="grade-2">' +
+      cartaoMapa('mapa-6', 'Mapa: volume por radar na seleção', 'Tamanho proporcional ao volume no filtro atual. Clique em um círculo para filtrar o equipamento.') +
+      '<div>' + cartao('Distribuição por categoria de velocidade', '<div id="p6-vel"></div>') +
+      cartao('Matriz: equipamento × tipo de veículo', '<div id="p6-matriz"></div>') + '</div></div>' +
+      cartao('Exportar para o Power BI',
+        '<div class="controles">' +
+        '<button type="button" class="botao" data-exportar="fato">Exportar seleção (fato_volume.csv)</button>' +
+        '<button type="button" class="botao secundario" data-exportar="dim_eq">dim_equipamento.csv</button>' +
+        '<button type="button" class="botao secundario" data-exportar="dim_vel">dim_velocidade.csv</button>' +
+        '</div>' +
+        '<p>Os arquivos usam o mesmo formato da pasta <code>powerbi/</code> do projeto (UTF-8, separador <code>;</code>). Para montar o relatório, use ' +
+        '<a href="powerbi/consultas.pq" download>consultas.pq</a> (Power Query), <a href="powerbi/medidas.dax" download>medidas.dax</a> (medidas DAX) e o guia ' +
+        '<a href="powerbi/README.md" target="_blank" rel="noopener">powerbi/README.md</a>.</p>',
+        'Gera CSVs do recorte filtrado acima, prontos para o modelo estrela (fato + dimensões).') +
+      cartao('Relatório Power BI incorporado', embed);
+
+    const m6 = R.mapa.criar(el.querySelector('#mapa-6'), D);
+    const alternar = (conj, v) => { if (conj.has(v)) conj.delete(v); else conj.add(v); };
+
+    function chips(rotulo, dim, itens) {
+      return `<div class="grupo-filtro"><span class="rotulo-filtro">${esc(rotulo)}</span><div class="chips">` +
+        itens.map((x) => `<button type="button" class="chip" data-f="${dim}" data-v="${esc(x.v)}" aria-pressed="${f[dim].has(x.v)}">${esc(x.rotulo)}</button>`).join('') +
+        '</div></div>';
+    }
+
+    function render() {
+      const p = R.painel(D, f);
+      const algumFiltro = f.ano || f.eqs.size || f.tipos.size || f.sentidos.size || f.dias.size;
+
+      el.querySelector('#p6-filtros').innerHTML =
+        '<div class="filtros-linha">' +
+        `<div class="grupo-filtro"><span class="rotulo-filtro">Ano</span><select data-f-ano><option value="">Todos</option>` +
+        p.anos.map((a) => `<option${a === f.ano ? ' selected' : ''}>${a}</option>`).join('') + '</select></div>' +
+        chips('Equipamento', 'eqs', D.equipamentos.map((e) => ({ v: e.i, rotulo: e.id }))) +
+        chips('Tipo de veículo', 'tipos', D.tipos.map((t) => ({ v: t.i, rotulo: t.nome }))) +
+        chips('Sentido', 'sentidos', sentidos.map((s) => ({ v: s, rotulo: s }))) +
+        chips('Dia da semana', 'dias', R.ORDEM_SEMANA.map((w) => ({ v: w, rotulo: R.NOME_DIA_CURTO[w] }))) +
+        `<button type="button" class="botao secundario" data-f="limpar"${algumFiltro ? '' : ' disabled'}>Limpar filtros</button>` +
+        '</div>';
+
+      el.querySelector('#p6-kpis').innerHTML =
+        kpi('Volume', R.int(p.total), `${plural(p.dias, 'dia', 'dias')} com registro`) +
+        kpi('Média diária', R.int(p.mediaDiaria), 'veículos por dia (todos os radares do filtro)') +
+        kpi('Média por radar-dia', R.int(p.mediaRadarDia), `${R.int(p.radarDias)} combinações radar × dia`) +
+        kpi('Acima de 100 km/h', R.int(p.acima), `${R.pctFino(p.total ? p.acima / p.total : 0)} · ${R.dec(p.total ? (p.acima / p.total) * 1e5 : 0, 1)} por 100 mil`);
+
+      /* volume mensal */
+      el.querySelector('#p6-mes').innerHTML = p.meses.length
+        ? G.colunas(p.meses.map((m) => ({
+          rotulo: m.mes.slice(5) === '01' || p.meses.length < 14 ? (p.meses.length < 14 ? R.mesBR(m.mes) : m.mes.slice(0, 4)) : '',
+          valor: m.volume,
+          dica: `${R.mesBR(m.mes)}\n${R.int(m.volume)} veículos`,
+        })), { semTopo: true })
+        : '<p class="nota">Sem registros na seleção.</p>';
+
+      /* dia da semana */
+      el.querySelector('#p6-dia').innerHTML = G.colunas(p.realceDia.map((d) => ({
+        rotulo: R.NOME_DIA_CURTO[d.w],
+        valor: d.media,
+        topo: R.int(d.media),
+        cor: d.w === 0 || d.w === 6 ? 'var(--s2)' : 'var(--s1)',
+        apagado: f.dias.size > 0 && !f.dias.has(d.w),
+        attrs: `data-f="dias" data-v="${d.w}" role="button" tabindex="0"`,
+        dica: `${R.NOME_DIA[d.w]}\nMédia diária: ${R.int(d.media)}\n${d.n} datas`,
+      })), { classe: 'colunas-largas' });
+
+      const totTipo = p.realceTipo.reduce((a, b) => a + b, 0) || 1;
+      el.querySelector('#p6-tipo').innerHTML = G.barrasH(D.tipos.map((t, i) => ({
+        rotulo: t.nome,
+        valor: p.realceTipo[i],
+        cor: t.cor,
+        texto: `${R.pct(p.realceTipo[i] / totTipo)} · ${R.int(p.realceTipo[i])}`,
+        apagado: f.tipos.size > 0 && !f.tipos.has(t.i),
+        attrs: `data-f="tipos" data-v="${t.i}" role="button" tabindex="0"`,
+        dica: `${t.nome}\n${R.int(p.realceTipo[i])} veículos`,
+      })));
+
+      el.querySelector('#p6-eq').innerHTML = G.barrasH(D.equipamentos.map((e) => {
+        const x = p.realceEq[e.i];
+        return {
+          rotulo: e.id,
+          valor: x.media,
+          cor: 'var(--s1)',
+          texto: `${R.int(x.media)}/dia`,
+          apagado: f.eqs.size > 0 && !f.eqs.has(e.i),
+          attrs: `data-f="eqs" data-v="${e.i}" role="button" tabindex="0"`,
+          dica: `${eqTxt(e)} · ${e.municipio}\nMédia diária: ${R.int(x.media)}\nVolume: ${R.int(x.total)} em ${x.dias} dias`,
+        };
+      }));
+
+      const totS = p.realceSentido.reduce((a, b) => a + b.volume, 0) || 1;
+      el.querySelector('#p6-sentido').innerHTML = G.barrasH(p.realceSentido.map((x) => ({
+        rotulo: x.s,
+        valor: x.volume,
+        cor: 'var(--s7)',
+        texto: `${R.pct(x.volume / totS)} · ${R.int(x.volume)}`,
+        apagado: f.sentidos.size > 0 && !f.sentidos.has(x.s),
+        attrs: `data-f="sentidos" data-v="${esc(x.s)}" role="button" tabindex="0"`,
+        dica: `${x.s}\n${R.int(x.volume)} veículos`,
+      })));
+
+      el.querySelector('#p6-vel').innerHTML = G.barrasH(D.vels.map((v, i) => ({
+        rotulo: v.rotulo,
+        valor: p.porVel[i],
+        cor: v.cor,
+        texto: R.pctFino(p.total ? p.porVel[i] / p.total : 0),
+        dica: `${v.rotulo}\n${R.int(p.porVel[i])} veículos`,
+      })));
+
+      el.querySelector('#p6-matriz').innerHTML = tabelaComposicao({
+        rotuloLinha: 'Equipamento',
+        cols: D.tipos.map((t) => ({ rotulo: t.nome })),
+        mostrarAbs: false,
+        linhas: D.equipamentos.filter((e) => p.porEqFiltrado[e.i] > 0).map((e) => ({
+          rotulo: e.id,
+          total: p.porEqFiltrado[e.i],
+          por: p.matriz[e.i],
+          p: p.matriz[e.i].map((v) => v / p.porEqFiltrado[e.i]),
+        })),
+        rodape: p.total ? { rotulo: 'Total', total: p.total, por: p.porTipo, p: p.porTipo.map((v) => v / p.total) } : null,
+      });
+
+      /* mapa */
+      const maxV = Math.max.apply(null, p.realceEq.map((x) => x.total)) || 1;
+      m6.simbolos(D.equipamentos.map((e) => {
+        const x = p.realceEq[e.i];
+        const apagado = f.eqs.size > 0 && !f.eqs.has(e.i);
+        const r = Math.round(R.mapa.raio(x.total, maxV, 32, 7));
+        return {
+          eq: e,
+          r,
+          html: R.mapa.circulo(r, apagado || !x.total ? 'var(--eixo)' : 'var(--s1)'),
+          rotulo: `${e.id} · ${R.int(x.media)}/dia`,
+          dica: `${eqTxt(e)} · ${e.municipio}\nVolume: ${R.int(x.total)}\nMédia diária: ${R.int(x.media)}\nClique para filtrar`,
+          aoClicar: () => { alternar(f.eqs, e.i); render(); },
+        };
+      }));
+    }
+
+    el.addEventListener('click', (ev) => {
+      const exp = ev.target.closest('[data-exportar]');
+      if (exp) { exportar(exp.getAttribute('data-exportar')); return; }
+      const alvo = ev.target.closest('[data-f]');
+      if (!alvo || !el.contains(alvo)) return;
+      const dim = alvo.getAttribute('data-f');
+      if (dim === 'limpar') {
+        f.ano = '';
+        ['eqs', 'tipos', 'sentidos', 'dias'].forEach((k) => f[k].clear());
+      } else {
+        const bruto = alvo.getAttribute('data-v');
+        alternar(f[dim], dim === 'sentidos' ? bruto : +bruto);
+      }
+      render();
+    });
+    el.addEventListener('keydown', (ev) => {
+      if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('[data-f][role="button"]')) {
+        ev.preventDefault();
+        ev.target.click();
+      }
+    });
+    el.addEventListener('change', (ev) => {
+      if (ev.target.matches('[data-f-ano]')) { f.ano = ev.target.value; render(); }
+    });
+
+    function exportar(qual) {
+      if (qual === 'dim_eq') {
+        baixarCSV('dim_equipamento.csv', [['equipamento', 'km', 'municipio', 'uf', 'rodovia', 'concessionaria', 'tipo_pista', 'latitude', 'longitude']]
+          .concat(D.equipamentos.map((e) => [e.id, e.km, e.municipio, e.uf, e.rodovia, e.concessionaria, e.pista, e.lat, e.lon])));
+      } else if (qual === 'dim_vel') {
+        baixarCSV('dim_velocidade.csv', [['velocidade', 'ordem', 'km_h_min', 'km_h_max', 'acima_100']]
+          .concat(D.vels.map((v, i) => [velCSV(v), i + 1, v.min, v.max === Infinity ? '' : v.max, v.acima100 ? 'Sim' : 'Não'])));
+      } else {
+        const linhas = [['data', 'equipamento', 'sentido', 'faixa', 'velocidade', 'tipo_veiculo', 'volume']];
+        const rotV = D.vels.map(velCSV);
+        D.registros.forEach((r) => {
+          if (R.passaFiltro(r, f, null)) linhas.push([r.d, D.equipamentos[r.e].id, r.s, r.f, rotV[r.v], D.tipos[r.t].nome, r.q]);
+        });
+        baixarCSV('fato_volume.csv', linhas);
+      }
+    }
+
+    render();
   };
 })();
