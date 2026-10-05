@@ -1,1 +1,64 @@
 # analise-rodovia
+
+Sistema web que analisa os dados dos radares de controle de velocidade da **BR-153 (Transbrasiliana)**. A fonte é o arquivo de volume de tráfego do Sistema de Informação de Rodovias da ANTT (`data/volume-radar-trans.csv`).
+
+As análises ficam em cinco abas:
+
+1. **Caracterização do conjunto de dados**: período, equipamentos, rodovia/UF/municípios, tipos de veículo, categorias de velocidade, sentidos, faixas, volume total e lacunas de cobertura.
+2. **Tipo de veículo × velocidade**: participação percentual de cada tipo em cada categoria de velocidade, com destaque para percentuais altos sustentados por volumes pequenos.
+3. **Pontos monitorados**: volume (total e média diária), composição por tipo e distribuição de velocidade por equipamento, com opção de usar o período comum a todos os equipamentos.
+4. **Variação temporal**: médias diárias por dia da semana, transições entre dias, dias úteis × fim de semana e decomposição do aumento até o dia de pico, com filtro por equipamento.
+5. **Espacial e operacional**: sentidos e faixas, e ranking de veículos acima de 100 km/h por quantidade absoluta e por proporção.
+
+Os textos interpretativos são gerados a partir dos números calculados no navegador. Nada está fixo no código.
+
+## Como executar
+
+### Localmente, sem instalar nada
+
+Abra `index.html` direto no navegador (duplo clique). Nesse caso (`file://`) o navegador bloqueia a leitura do CSV via `fetch`. Por isso a aplicação usa `data/volume-radar-trans.js`, uma cópia do CSV embutida em JavaScript. Se esse arquivo não existir, a página pede que você selecione o CSV manualmente.
+
+### Com Vite (desenvolvimento)
+
+```bash
+npm install
+npm run dev
+```
+
+### Build e Vercel
+
+```bash
+npm run build     # gera dist/
+npm run preview   # serve dist/ localmente
+```
+
+Na Vercel, importe o repositório. O `vercel.json` já define `npm run build` como comando de build e `dist` como diretório de saída.
+
+### Atualizar os dados
+
+1. Substitua `data/volume-radar-trans.csv` (separador `;`, Latin-1 ou UTF-8).
+2. Rode `npm run dados` para regenerar `data/volume-radar-trans.js`, usado no modo `file://`.
+
+## Estrutura
+
+```
+index.html            página e abas
+css/style.css         estilos (tema claro/escuro)
+js/util.js            formatação e utilitários
+js/dados.js           carregamento e normalização do CSV
+js/analise.js         agregações estatísticas
+js/graficos.js        gráficos em HTML/CSS e tooltip
+js/abas.js            renderização e textos de cada aba
+js/app.js             inicialização e navegação
+data/                 CSV original e cópia em JS
+scripts/              gerador de data/volume-radar-trans.js
+vite.config.js        build (copia js/, css/ e data/ para dist/)
+```
+
+Os scripts são "clássicos" (sem `type="module"`) e não têm dependências. Por isso o mesmo `index.html` funciona tanto aberto do disco quanto servido pelo Vite/Vercel.
+
+## Observações sobre os dados
+
+- O arquivo vem em Latin-1, e os rótulos de velocidade estão truncados (ex.: `"81 - 100 K"`). Ambos são normalizados na leitura.
+- Cada equipamento registra um único sentido e uma única faixa. Por isso, comparar sentidos ou faixas equivale a comparar grupos de equipamentos.
+- O LE-89 só tem registros de 01/01/2022 a 01/06/2022, e há 64 dias sem nenhum registro (incluindo quase todo abril/2023).

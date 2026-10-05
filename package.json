@@ -1,0 +1,16 @@
+{
+  "name": "analise-rodovia",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Análise dos radares de velocidade da BR-153 (Transbrasiliana) – dados ANTT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dados": "node scripts/gerar-dados-js.mjs"
+  },
+  "devDependencies": {
+    "vite": "^6.3.0"
+  }
+}
